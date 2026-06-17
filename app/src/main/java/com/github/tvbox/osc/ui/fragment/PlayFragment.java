@@ -743,10 +743,12 @@ public class PlayFragment extends BaseLazyFragment {
                         if ("".equals(forwardurl)) {
                             int ilast = url.lastIndexOf('/');
 
-                            RemoteServer.m3u8Content = M3U8.purify(url.substring(0, ilast + 1), content);
+                            String baseUrl = url.substring(0, ilast + 1);
+                            RemoteServer.m3u8Content = M3U8.purify(baseUrl, content);
                             if (RemoteServer.m3u8Content == null)
                                 startPlayUrl(url, headers);
                             else {
+                                RemoteServer.m3u8Content = M3U8.resolveAll(baseUrl, RemoteServer.m3u8Content);
                                 startPlayUrl("http://127.0.0.1:" + RemoteServer.serverPort + "/m3u8", headers);
                                 //Toast.makeText(getContext(), "已移除视频广告", Toast.LENGTH_SHORT).show();
                             }
@@ -761,11 +763,13 @@ public class PlayFragment extends BaseLazyFragment {
                                     public void onSuccess(Response<String> response) {
                                         String content = response.body();
                                         int ilast = finalforwardurl.lastIndexOf('/');
-                                        RemoteServer.m3u8Content = M3U8.purify(finalforwardurl.substring(0, ilast + 1), content);
+                                        String baseUrl = finalforwardurl.substring(0, ilast + 1);
+                                        RemoteServer.m3u8Content = M3U8.purify(baseUrl, content);
 
                                         if (RemoteServer.m3u8Content == null)
                                             startPlayUrl(finalforwardurl, headers);
                                         else {
+                                            RemoteServer.m3u8Content = M3U8.resolveAll(baseUrl, RemoteServer.m3u8Content);
                                             startPlayUrl("http://127.0.0.1:" + RemoteServer.serverPort + "/m3u8", headers);
                                             //Toast.makeText(getContext(), "已移除视频广告", Toast.LENGTH_SHORT).show();
                                         }

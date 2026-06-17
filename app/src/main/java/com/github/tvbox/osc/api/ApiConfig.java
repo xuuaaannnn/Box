@@ -834,11 +834,17 @@ public class ApiConfig {
     }
 
     public IJKCode getIJKCodec(String name) {
-        for (IJKCode code : ijkCodes) {
-            if (code.getName().equals(name))
-                return code;
+        if (ijkCodes != null) {
+            for (IJKCode code : ijkCodes) {
+                if (code != null && code.getName() != null && code.getName().equals(name))
+                    return code;
+            }
+            if (!ijkCodes.isEmpty()) return ijkCodes.get(0);
         }
-        return ijkCodes.get(0);
+        IJKCode fallback = new IJKCode();
+        fallback.setName(TextUtils.isEmpty(name) ? "默认" : name);
+        fallback.setOption(new LinkedHashMap<>());
+        return fallback;
     }
 
     public JsonArray getLivePlayHeaders() {

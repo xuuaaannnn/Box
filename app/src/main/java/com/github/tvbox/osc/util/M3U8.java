@@ -312,12 +312,24 @@ public class M3U8 {
         }
     }
 
+    public static String resolveAll(String base, String m3u8Content) {
+        if (m3u8Content == null || m3u8Content.length() == 0) return m3u8Content;
+        String lineSplit = m3u8Content.contains("\r\n") ? "\r\n" : "\n";
+        StringBuilder sb = new StringBuilder();
+        String[] lines = m3u8Content.split(lineSplit);
+        for (int i = 0; i < lines.length; i++) {
+            if (i > 0) sb.append(lineSplit);
+            sb.append(shouldResolve(lines[i]) ? resolve(base, lines[i]) : lines[i]);
+        }
+        return sb.toString();
+    }
+
     private static boolean shouldResolve(String line) {
-        return (!line.startsWith("#") && !line.startsWith("http")) || line.startsWith(TAG_KEY);
+        return line.length() > 0 && ((!line.startsWith("#") && !line.startsWith("http") && !line.startsWith("data:")) || line.contains("URI=\""));
     }
 
     private static String resolve(String base, String line) {
-        if (line.startsWith(TAG_KEY)) {
+        if (line.startsWith("#")) {
             Matcher matcher = REGEX_URI.matcher(line);
             String value = matcher.find() ? matcher.group(1) : null;
             return value == null ? line : line.replace(value, UriUtil.resolve(base, value));

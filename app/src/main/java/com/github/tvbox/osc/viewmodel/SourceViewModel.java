@@ -770,6 +770,7 @@ public class SourceViewModel extends ViewModel {
         Callable<JSONObject> callable = () -> {
             if (Thread.currentThread().isInterrupted()) return null;
             SourceBean sourceBean = ApiConfig.get().getSource(sourceKey);
+            if (sourceBean == null) return null;
             int type = sourceBean.getType();
             JSONObject result = null;
             if (type == 3) {
@@ -779,9 +780,10 @@ public class SourceViewModel extends ViewModel {
             } else if (type == 0 || type == 1) {
                 result = new JSONObject();
                 String playUrl = sourceBean.getPlayerUrl().trim();
-                boolean parse = DefaultConfig.isVideoFormat(url) && playUrl.isEmpty();
+                String resolvedUrl = resolveKnownShareUrl(url);
+                boolean parse = DefaultConfig.isVideoFormat(resolvedUrl) && playUrl.isEmpty();
                 result.put("parse", BooleanUtils.toInteger(!parse));
-                result.put("url", url);
+                result.put("url", resolvedUrl);
                 result.put("playUrl", playUrl);
                 //直接就有
             } else if (type == 4) {
@@ -810,6 +812,49 @@ public class SourceViewModel extends ViewModel {
                 playResult.postValue(null);
             }
         });
+    }
+
+    private String resolveKnownShareUrl(String url) {
+        if (TextUtils.isEmpty(url) || DefaultConfig.isVideoFormat(url) || !url.contains("/share/")) return url;
+        try {
+            okhttp3.Response response = OkGo.<String>get(url)
+                    .headers("User-Agent", "Mozilla/5.0")
+                    .tag("play_share")
+                    .execute();
+            if (response.body() == null) return url;
+            String html = response.body().string();
+            String direct = findFirstGroup(html,
+                    "playlist\\s*=\\s*'\\[\\{\\\"url\\\":\\\"([^\\\"]+)\\\"\\}\\]'",
+                    "main\\s*=\\s*\\\"([^\\\"]+\\.m3u8[^\\\"]*)\\\"",
+                    "mp4\\s*=\\s*\\\"([^\\\"]+\\.mp4[^\\\"]*)\\\"");
+            if (TextUtils.isEmpty(direct)) return url;
+            direct = direct.replace("\\/", "/").trim();
+            String resolved = toAbsoluteUrl(url, direct);
+            LOG.i("echo--resolveKnownShareUrl: " + url + " -> " + resolved);
+            return TextUtils.isEmpty(resolved) ? url : resolved;
+        } catch (Throwable th) {
+            LOG.i("echo--resolveKnownShareUrl--error: " + th.getMessage());
+            return url;
+        }
+    }
+
+    private String findFirstGroup(String text, String... patterns) {
+        if (TextUtils.isEmpty(text)) return "";
+        for (String pattern : patterns) {
+            java.util.regex.Matcher matcher = java.util.regex.Pattern.compile(pattern).matcher(text);
+            if (matcher.find()) return matcher.group(1);
+        }
+        return "";
+    }
+
+    private String toAbsoluteUrl(String base, String url) {
+        try {
+            if (TextUtils.isEmpty(url)) return "";
+            if (url.startsWith("//")) return "https:" + url;
+            return java.net.URI.create(base).resolve(url).toString();
+        } catch (Throwable th) {
+            return url;
+        }
     }
     private static final ConcurrentHashMap<String, String> extendCache = new ConcurrentHashMap<>();
     private String getFixUrl(final String extend) {
