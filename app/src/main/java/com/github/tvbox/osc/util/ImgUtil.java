@@ -33,8 +33,13 @@ import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLDecoder;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class ImgUtil {
+    private static final long FAILED_IMAGE_RETRY_INTERVAL_MS = 5 * 60 * 1000L;
+    private static final int FAILED_IMAGE_CACHE_LIMIT = 512;
+    private static final ConcurrentHashMap<String, Long> failedImageUrls = new ConcurrentHashMap<>();
+
     public static int defaultWidth = 244;
     public static int defaultHeight = 320;
 
@@ -125,6 +130,12 @@ public class ImgUtil {
         if (TextUtils.isEmpty(url)) {
             view.setImageResource(R.drawable.img_loading_placeholder);
         } else {
+            String imageKey = getImageKey(url);
+            if (isFailedImageBlocked(imageKey)) {
+                view.setImageResource(R.drawable.img_loading_placeholder);
+                return;
+            }
+
             if (roundingRadius == 0) roundingRadius = 1;
             RequestOptions requestOptions = new RequestOptions()
                 .format(DecodeFormat.PREFER_RGB_565)
@@ -134,12 +145,18 @@ public class ImgUtil {
             if (newWidth > 0 && newHeight > 0) {
                 requestOptions = requestOptions.override(newWidth, newHeight);
             }
+            Object imageUrl = getUrl(url);
+            if (imageUrl == null) {
+                view.setImageResource(R.drawable.img_loading_placeholder);
+                return;
+            }
+
             Glide.with(App.getInstance())
                 .asBitmap()
-                .load(getUrl(url))
+                .load(imageUrl)
                 .error(R.drawable.img_loading_placeholder)
                 .placeholder(R.drawable.img_loading_placeholder)
-                .listener(getListener(view, ImageView.ScaleType.FIT_XY))
+                .listener(getListener(view, ImageView.ScaleType.FIT_XY, imageKey))
                 .apply(requestOptions)
                 .into(view);
         }
@@ -254,9 +271,10 @@ public class ImgUtil {
         return new GlideUrl(url, builder.build());
     }
 
-    private static RequestListener < Bitmap > getListener(ImageView view, ImageView.ScaleType scaleType) {
+    private static RequestListener < Bitmap > getListener(ImageView view, ImageView.ScaleType scaleType, String imageKey) {
         return new RequestListener < Bitmap > () {@Override
             public boolean onLoadFailed(@Nullable GlideException e, Object model, Target < Bitmap > target, boolean isFirstResource) {
+                rememberFailedImage(imageKey);
                 view.setScaleType(scaleType);
                 view.setImageResource(R.drawable.img_loading_placeholder);
                 return true;
@@ -264,9 +282,43 @@ public class ImgUtil {
 
             @Override
             public boolean onResourceReady(Bitmap resource, Object model, Target < Bitmap > target, DataSource dataSource, boolean isFirstResource) {
+                clearFailedImage(imageKey);
                 view.setScaleType(scaleType);
                 return false;
             }
         };
+    }
+
+    private static String getImageKey(String url) {
+        if (TextUtils.isEmpty(url)) return "";
+
+        String imageUrl = DefaultConfig.checkReplaceProxy(url.trim());
+        int headerIndex = imageUrl.indexOf("@");
+        if (headerIndex >= 0) return imageUrl.substring(0, headerIndex);
+        return imageUrl;
+    }
+
+    private static boolean isFailedImageBlocked(String imageKey) {
+        if (TextUtils.isEmpty(imageKey)) return false;
+
+        Long failedAt = failedImageUrls.get(imageKey);
+        if (failedAt == null) return false;
+
+        if (System.currentTimeMillis() - failedAt < FAILED_IMAGE_RETRY_INTERVAL_MS) return true;
+
+        failedImageUrls.remove(imageKey);
+        return false;
+    }
+
+    private static void rememberFailedImage(String imageKey) {
+        if (TextUtils.isEmpty(imageKey)) return;
+
+        if (failedImageUrls.size() >= FAILED_IMAGE_CACHE_LIMIT) failedImageUrls.clear();
+        failedImageUrls.put(imageKey, System.currentTimeMillis());
+    }
+
+    private static void clearFailedImage(String imageKey) {
+        if (TextUtils.isEmpty(imageKey)) return;
+        failedImageUrls.remove(imageKey);
     }
 }

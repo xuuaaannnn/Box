@@ -16,6 +16,7 @@ import com.github.tvbox.osc.data.AppDataManager;
 import com.github.tvbox.osc.server.ControlManager;
 import com.github.tvbox.osc.util.EpgUtil;
 import com.github.tvbox.osc.util.FileUtils;
+import com.github.tvbox.osc.util.FeatureFlags;
 import com.github.tvbox.osc.util.HawkConfig;
 import com.github.tvbox.osc.util.LocaleHelper;
 import com.github.tvbox.osc.util.LOG;
@@ -118,6 +119,8 @@ public class App extends MultiDexApplication {
     }
 
     public static P2PClass getp2p() {
+        if (!FeatureFlags.isThunderEnabled()) return null;
+
         try {
             if (p == null) {
                 p = new P2PClass(FileUtils.getExternalCachePath());
@@ -152,6 +155,7 @@ public class App extends MultiDexApplication {
         putDefault(HawkConfig.THEME_SELECT, 0);              //主题: 0=奈飞, 1=哆啦, 2=百事, 3=鸣人, 4=小黄, 5=八神, 6=樱花
         putDefault(HawkConfig.SEARCH_VIEW, 1);               //搜索展示: 0=文字列表, 1=缩略图
         putDefault(HawkConfig.PARSE_WEBVIEW, true);          //嗅探Webview: true=系统自带, false=XWalkView
+        if (!FeatureFlags.isXWalkEnabled()) Hawk.put(HawkConfig.PARSE_WEBVIEW, true);
         putDefault(HawkConfig.DOH_URL, 0);                   //安全DNS: 0=关闭, 1=腾讯, 2=阿里, 3=360, 4=Google, 5=AdGuard, 6=Quad9
 
     }

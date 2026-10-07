@@ -54,8 +54,10 @@
 -dontwarn com.google.android.material.**
 -dontnote com.google.android.material.**
 -dontwarn androidx.**
--keep class androidx.** { *; }
--keep interface androidx.** { *; }
+# Do not keep all AndroidX classes. R8 can trace normal AndroidX usage.
+# Broad keep rules here keep large unused UI/runtime surfaces alive.
+#-keep class androidx.** { *; }
+#-keep interface androidx.** { *; }
 #-keep public class * extends androidx.**
 
 -keep class org.xmlpull.v1.** {*;}
@@ -134,10 +136,8 @@
 -dontwarn org.chromium.**
 #okhttp
 -dontwarn okhttp3.**
--keep class okhttp3.**{*;}
 #okio
 -dontwarn okio.**
--keep class okio.**{*;}
 #loadsir
 -dontwarn com.kingja.loadsir.**
 -keep class com.kingja.loadsir.** {*;}
@@ -205,8 +205,9 @@
 -keep class jcifs.** { *; }
 -dontwarn jcifs.**
 
-# 实体类
-#-keep class com.github.tvbox.osc.bean.** { *; }
+# 实体类和接口数据模型：Gson/XStream/Room/缓存反序列化依赖原字段名。
+-keep class com.github.tvbox.osc.bean.** { *; }
+-keep class com.github.tvbox.osc.cache.** { *; }
 -keep class com.github.tvbox.osc.ui.fragment.homes.**{*;}
 #CardView
 -keep class com.github.tvbox.osc.ui.tv.widget.card.**{*;}
@@ -224,7 +225,8 @@
 -keep class com.whl.quickjs.** {*;}
 
 # 支持影视的ali相关的jar
--keep class com.google.gson.**{*;}
+# Do not keep Gson wholesale; field/type adapter rules above are enough for reflection use.
+#-keep class com.google.gson.**{*;}
 # 某些类会反射调用zxing导致生成阿里云二维码报错
 -keep class com.google.zxing.** {*;}
 #阿里云播放器
@@ -235,7 +237,19 @@
 -dontwarn com.aliyun.**
 -dontwarn com.cicada.**
 
-# from app -> build -> outputs -> mapping -> your_app_name -> missing_rules.txt
+# Release logging cleanup.
+# Debug builds do not run R8, so diagnostics remain available during development.
+-assumenosideeffects class android.util.Log {
+    public static *** v(...);
+    public static *** d(...);
+    public static *** i(...);
+    public static *** w(...);
+    public static *** e(...);
+}
+-assumenosideeffects class java.lang.Throwable {
+    public void printStackTrace();
+}
+
 # Please add these rules to your existing keep rules in order to suppress warnings.
 # This is generated automatically by the Android Gradle plugin.
 -dontwarn com.android.org.conscrypt.SSLParametersImpl

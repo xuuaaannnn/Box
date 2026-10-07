@@ -6,8 +6,8 @@ import com.bumptech.glide.load.model.ModelLoader
 import com.bumptech.glide.load.model.ModelLoader.LoadData
 import com.bumptech.glide.load.model.ModelLoaderFactory
 import com.bumptech.glide.load.model.MultiModelLoaderFactory
+import com.github.tvbox.osc.util.OkGoHelper
 import okhttp3.Call
-import okhttp3.OkHttpClient
 import java.io.InputStream
 
 /**
@@ -45,7 +45,10 @@ class OkHttpUrlLoader(
         }
 
         companion object {
-            private val internalClient: Call.Factory = OkHttpClient().newBuilder().followRedirects(false).followSslRedirects(false).build()//modify by muziling
+            private val internalClient: Call.Factory = OkGoHelper.newSharedBuilder()
+                .followRedirects(false)
+                .followSslRedirects(false)
+                .build()
         }
     }
 

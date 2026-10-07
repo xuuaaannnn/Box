@@ -24,10 +24,11 @@ public class HawkUtils {
     private static final String DANMU_COLOR = "danmu_color";
 
     public static boolean getDanmuOpen() {
-        return Hawk.get(DANMU_OPEN, true);
+        return FeatureFlags.isDanmuEnabled() && Hawk.get(DANMU_OPEN, false);
     }
 
     public static void setDanmuOpen(boolean danmuOpen) {
+        if (!FeatureFlags.isDanmuEnabled()) return;
         Hawk.put(DANMU_OPEN, danmuOpen);
     }
 
@@ -74,6 +75,7 @@ public class HawkUtils {
 
     public static void nextIJKCodec() {
         List<IJKCode> ijkCodes = ApiConfig.get().getIjkCodes();
+        if (ijkCodes == null || ijkCodes.isEmpty()) return;
         String ijkCodec = getIJKCodec();
         int index = 0;
         for (int i = 0; i < ijkCodes.size(); i++) {
@@ -108,10 +110,20 @@ public class HawkUtils {
      * @return int
      */
     public static int getExoRenderer() {
-        return Hawk.get(HawkConfig.EXO_RENDERER, 0);
+        int renderer = Hawk.get(HawkConfig.EXO_RENDERER, 0);
+        if (renderer == 1 && !FeatureFlags.isExoFfmpegEnabled()) {
+            Hawk.put(HawkConfig.EXO_RENDERER, 0);
+            return 0;
+        }
+        return renderer;
     }
 
     public static void nextExoRenderer() {
+        if (!FeatureFlags.isExoFfmpegEnabled()) {
+            Hawk.put(HawkConfig.EXO_RENDERER, 0);
+            return;
+        }
+
         App app = App.getInstance();
         String[] array = app.getResources().getStringArray(R.array.media_content_ExoPlayer_renderer);
         int renderer = getExoRenderer();
@@ -130,7 +142,8 @@ public class HawkUtils {
         int renderer = getExoRenderer();
         switch (renderer) {
             case 1:
-                return new NextRenderersFactory(context);
+                if (FeatureFlags.isExoFfmpegEnabled()) return new NextRenderersFactory(context);
+                return new DefaultRenderersFactory(context);
             case 0:
             default:
                 return new DefaultRenderersFactory(context);

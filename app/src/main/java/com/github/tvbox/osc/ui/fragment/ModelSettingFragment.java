@@ -33,6 +33,7 @@ import com.github.tvbox.osc.ui.dialog.ResetDialog;
 import com.github.tvbox.osc.ui.dialog.SelectDialog;
 import com.github.tvbox.osc.ui.dialog.XWalkInitDialog;
 import com.github.tvbox.osc.util.FastClickCheckUtil;
+import com.github.tvbox.osc.util.FeatureFlags;
 import com.github.tvbox.osc.util.HawkConfig;
 import com.github.tvbox.osc.util.HistoryHelper;
 import com.github.tvbox.osc.util.OkGoHelper;
@@ -134,6 +135,7 @@ public class ModelSettingFragment extends BaseLazyFragment {
         tvRender = findViewById(R.id.tvRenderType);
         tvRender.setText(PlayerHelper.getRenderName(Hawk.get(HawkConfig.PLAY_RENDER, 0)));
         tvParseWebView = findViewById(R.id.tvParseWebView);
+        if (!FeatureFlags.isXWalkEnabled()) Hawk.put(HawkConfig.PARSE_WEBVIEW, true);
         tvParseWebView.setText(Hawk.get(HawkConfig.PARSE_WEBVIEW, true) ? "系统自带" : "XWalkView");
         tvSearchView = findViewById(R.id.tvSearchView);
         tvSearchView.setText(getSearchView(Hawk.get(HawkConfig.SEARCH_VIEW, 0)));
@@ -447,7 +449,9 @@ public class ModelSettingFragment extends BaseLazyFragment {
                 players.add(0);
                 players.add(1);
                 players.add(2);
-                players.add(3);
+                if (FeatureFlags.isAliPlayerEnabled()) {
+                    players.add(3);
+                }
                 if (MXPlayer.getPackageInfo()!=null){
                     players.add(10);
                 }
@@ -508,6 +512,13 @@ public class ModelSettingFragment extends BaseLazyFragment {
             @Override
             public void onClick(View v) {
                 FastClickCheckUtil.check(v);
+                if (!FeatureFlags.isXWalkEnabled()) {
+                    Hawk.put(HawkConfig.PARSE_WEBVIEW, true);
+                    tvParseWebView.setText("系统自带");
+                    Toast.makeText(mContext, "Lite版仅支持系统WebView", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+
                 boolean useSystem = !Hawk.get(HawkConfig.PARSE_WEBVIEW, true);
                 Hawk.put(HawkConfig.PARSE_WEBVIEW, useSystem);
                 tvParseWebView.setText(Hawk.get(HawkConfig.PARSE_WEBVIEW, true) ? "系统自带" : "XWalkView");
@@ -576,6 +587,7 @@ public class ModelSettingFragment extends BaseLazyFragment {
                         Hawk.put(HawkConfig.DOH_URL, pos);
                         String url = OkGoHelper.getDohUrl(pos);
                         OkGoHelper.dnsOverHttps.setUrl(url.isEmpty() ? null : HttpUrl.get(url));
+                        OkGoHelper.clearDnsCache();
                         IjkMediaPlayer.toggleDotPort(pos > 0);
                     }
 

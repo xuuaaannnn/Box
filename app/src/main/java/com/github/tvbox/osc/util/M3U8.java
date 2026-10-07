@@ -6,7 +6,9 @@ import androidx.media3.common.util.UriUtil;
 
 import com.github.tvbox.osc.base.App;
 
+import java.io.UnsupportedEncodingException;
 import java.math.BigDecimal;
+import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -312,6 +314,12 @@ public class M3U8 {
         }
     }
 
+    public static boolean isM3u8Like(String url) {
+        if (url == null || url.length() == 0) return false;
+        String lower = url.toLowerCase();
+        return lower.contains(".m3u8") || lower.contains("type=m3u8") || lower.contains("format=m3u8") || lower.contains("m3u8");
+    }
+
     public static String resolveAll(String base, String m3u8Content) {
         if (m3u8Content == null || m3u8Content.length() == 0) return m3u8Content;
         String lineSplit = m3u8Content.contains("\r\n") ? "\r\n" : "\n";
@@ -322,6 +330,42 @@ public class M3U8 {
             sb.append(shouldResolve(lines[i]) ? resolve(base, lines[i]) : lines[i]);
         }
         return sb.toString();
+    }
+
+    public static String proxySegments(String proxyBase, String m3u8Content) {
+        if (m3u8Content == null || m3u8Content.length() == 0) return m3u8Content;
+        String lineSplit = m3u8Content.contains("\r\n") ? "\r\n" : "\n";
+        StringBuilder sb = new StringBuilder();
+        String[] lines = m3u8Content.split(lineSplit);
+        for (int i = 0; i < lines.length; i++) {
+            if (i > 0) sb.append(lineSplit);
+            sb.append(proxyLine(proxyBase, lines[i]));
+        }
+        return sb.toString();
+    }
+
+    private static String proxyLine(String proxyBase, String line) {
+        if (line.startsWith("#")) {
+            Matcher matcher = REGEX_URI.matcher(line);
+            String value = matcher.find() ? matcher.group(1) : null;
+            if (value == null || !isProxyableMedia(value)) return line;
+            return line.replace(value, proxyUrl(proxyBase, value));
+        }
+        return isProxyableMedia(line) ? proxyUrl(proxyBase, line) : line;
+    }
+
+    private static boolean isProxyableMedia(String url) {
+        if (url == null || url.length() == 0 || url.startsWith("data:")) return false;
+        String lower = url.toLowerCase();
+        return lower.startsWith("http") && !lower.contains(".m3u8");
+    }
+
+    private static String proxyUrl(String proxyBase, String url) {
+        try {
+            return proxyBase + URLEncoder.encode(url, "UTF-8");
+        } catch (UnsupportedEncodingException e) {
+            return url;
+        }
     }
 
     private static boolean shouldResolve(String line) {

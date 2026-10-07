@@ -47,6 +47,7 @@ import com.github.tvbox.osc.ui.adapter.ParseAdapter;
 import com.github.tvbox.osc.ui.adapter.SelectDialogAdapter;
 import com.github.tvbox.osc.ui.dialog.SelectDialog;
 import com.github.tvbox.osc.util.FastClickCheckUtil;
+import com.github.tvbox.osc.util.FeatureFlags;
 import com.github.tvbox.osc.util.HawkConfig;
 import com.github.tvbox.osc.util.PlayerHelper;
 import com.github.tvbox.osc.util.ScreenUtils;
@@ -712,7 +713,9 @@ public class VodController extends BaseController {
                     players.add(0);  // System
                     players.add(1);  // IJK
                     players.add(2);  // Exo
-                    players.add(3);  // Ali
+                    if (FeatureFlags.isAliPlayerEnabled()) {
+                        players.add(3);  // Ali
+                    }
                     if (mxPlayerExist) {
                         players.add(10);
                     }
@@ -767,6 +770,7 @@ public class VodController extends BaseController {
                 try {
                     String ijk = mPlayerConfig.getString("ijk");
                     List<IJKCode> codecs = ApiConfig.get().getIjkCodes();
+                    if (codecs == null || codecs.isEmpty()) return;
                     for (int i = 0; i < codecs.size(); i++) {
                         if (ijk.equals(codecs.get(i).getName())) {
                             if (i >= codecs.size() - 1)
@@ -1096,6 +1100,8 @@ public class VodController extends BaseController {
 
         void prepared();
 
+        void playStateChanged(int playState);
+
         void changeParse(ParseBean pb);
 
         void updatePlayerCfg();
@@ -1256,6 +1262,7 @@ public class VodController extends BaseController {
     protected void onPlayStateChanged(int playState) {
         super.onPlayStateChanged(playState);
         EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_REFRESH_NOTIFY, null));
+        listener.playStateChanged(playState);
         switch (playState) {
             case VideoView.STATE_IDLE:
                 break;

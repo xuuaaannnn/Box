@@ -53,7 +53,9 @@ import com.github.tvbox.osc.ui.dialog.DescDialog;
 import com.github.tvbox.osc.ui.dialog.PushDialog;
 import com.github.tvbox.osc.ui.dialog.QuickSearchDialog;
 import com.github.tvbox.osc.ui.fragment.PlayFragment;
+import com.github.tvbox.osc.util.AppExecutors;
 import com.github.tvbox.osc.util.FastClickCheckUtil;
+import com.github.tvbox.osc.util.FeatureFlags;
 import com.github.tvbox.osc.util.HawkConfig;
 import com.github.tvbox.osc.util.ImgUtil;
 import com.github.tvbox.osc.util.SearchHelper;
@@ -86,7 +88,6 @@ import java.util.HashMap;
 import java.util.List;
 
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -346,7 +347,7 @@ public class DetailActivity extends BaseActivity {
                 EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_QUICK_SEARCH_WORD, quickSearchWord));
                 quickSearchDialog.show();
                 if (pauseRunnable != null && pauseRunnable.size() > 0) {
-                    searchExecutorService = Executors.newFixedThreadPool(5);
+                    searchExecutorService = AppExecutors.newSearchPool("detail-resume");
                     for (Runnable runnable : pauseRunnable) {
                         searchExecutorService.execute(runnable);
                     }
@@ -1047,7 +1048,7 @@ public class DetailActivity extends BaseActivity {
         } catch (Throwable th) {
             th.printStackTrace();
         }
-        searchExecutorService = Executors.newFixedThreadPool(5);
+        searchExecutorService = AppExecutors.newSearchPool("detail-search");
         List<SourceBean> searchRequestList = new ArrayList<>();
         searchRequestList.addAll(ApiConfig.get().getSourceBeanList());
         SourceBean home = ApiConfig.get().getHomeSourceBean();
@@ -1119,7 +1120,7 @@ public class DetailActivity extends BaseActivity {
         OkGo.getInstance().cancelTag("quick_search");
         OkGo.getInstance().cancelTag("pushVod");
         EventBus.getDefault().unregister(this);
-        if (!showPreview) Thunder.stop(true);
+        if (!showPreview && FeatureFlags.isThunderEnabled()) Thunder.stop(true);
     }
 
     @Override

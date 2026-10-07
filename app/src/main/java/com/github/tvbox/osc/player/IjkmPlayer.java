@@ -15,8 +15,10 @@ import com.orhanobut.hawk.Hawk;
 import java.io.File;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -30,6 +32,7 @@ import xyz.doikki.videoplayer.ijk.RawDataSourceProvider;
 public class IjkmPlayer extends IjkPlayer {
 
     private IJKCode codec = null;
+    private final Set<String> configuredOptions = new HashSet<>();
 
     public IjkmPlayer(Context context, IJKCode codec) {
         super(context);
@@ -38,6 +41,7 @@ public class IjkmPlayer extends IjkPlayer {
 
     @Override
     public void setOptions() {
+        configuredOptions.clear();
         IJKCode codecTmp = this.codec == null ? ApiConfig.get().getCurrentIJKCode() : this.codec;
         LinkedHashMap<String, String> options = codecTmp.getOption();
         if (options != null) {
@@ -48,8 +52,10 @@ public class IjkmPlayer extends IjkPlayer {
                 String name = opt[1].trim();
                 try {
                     long valLong = Long.parseLong(value);
+                    configuredOptions.add(optionKey(category, name));
                     mMediaPlayer.setOption(category, name, valLong);
                 } catch (Exception e) {
+                    configuredOptions.add(optionKey(category, name));
                     mMediaPlayer.setOption(category, name, value);
                 }
             }
@@ -89,6 +95,7 @@ public class IjkmPlayer extends IjkPlayer {
                 }
             }
             setDataSourceHeader(headers);
+            applyHttpFastStartOptions(path);
         } catch (Exception e) {
             mPlayerEventListener.onError(-1, PlayerHelper.getRootCauseMessage(e));
         }
@@ -101,6 +108,33 @@ public class IjkmPlayer extends IjkPlayer {
 //
 //        }
         super.setDataSource(path, headers);
+    }
+
+    private void applyHttpFastStartOptions(String path) {
+        if (TextUtils.isEmpty(path) || !path.startsWith("http")) return;
+
+        boolean hls = path.contains(".m3u8") || path.contains("type=m3u8") || path.contains("/m3u8");
+        setOptionIfAbsent(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "http_persistent", 1);
+        setOptionIfAbsent(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "multiple_requests", 1);
+        setOptionIfAbsent(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "packet-buffering", 1);
+        setOptionIfAbsent(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "infbuf", 0);
+        setOptionIfAbsent(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "max-buffer-size", 8 * 1024 * 1024);
+        setOptionIfAbsent(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "max_cached_duration", hls ? 30000 : 45000);
+        setOptionIfAbsent(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "first-high-water-mark-ms", hls ? 1500 : 3000);
+        setOptionIfAbsent(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "next-high-water-mark-ms", hls ? 4000 : 5000);
+        setOptionIfAbsent(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "last-high-water-mark-ms", hls ? 6000 : 8000);
+        setOptionIfAbsent(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "min-frames", hls ? 20 : 60);
+        setOptionIfAbsent(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "probesize", hls ? 1024 * 1024 : 4 * 1024 * 1024);
+        setOptionIfAbsent(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "analyzeduration", hls ? 1500000 : 3000000);
+    }
+
+    private void setOptionIfAbsent(int category, String name, long value) {
+        if (configuredOptions.contains(optionKey(category, name))) return;
+        mMediaPlayer.setOption(category, name, value);
+    }
+
+    private String optionKey(int category, String name) {
+        return category + "|" + name;
     }
 
     private String encodeSpaceChinese(String str) throws UnsupportedEncodingException {

@@ -5,6 +5,7 @@ import android.annotation.SuppressLint;
 import android.content.Context;
 import android.net.wifi.WifiManager;
 import android.os.Environment;
+import android.os.SystemClock;
 import android.util.Base64;
 
 import com.github.tvbox.osc.R;
@@ -26,12 +27,15 @@ import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.SocketException;
+import java.net.SocketTimeoutException;
+import java.net.URLDecoder;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -41,12 +45,15 @@ import java.util.Date;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 import fi.iki.elonen.NanoHTTPD;
+import okhttp3.Request;
+import okhttp3.ResponseBody;
 
 /**
  * @author pj567
@@ -63,8 +70,11 @@ public class RemoteServer extends NanoHTTPD {
     private static final String PATTERN_ETH_STR = "^eth\\d+$";
     private static final Pattern ETH_PATTERN = Pattern.compile(PATTERN_ETH_STR);
     public static String m3u8Content;
+    private static final ConcurrentHashMap<String, String> m3u8Sessions = new ConcurrentHashMap<>();
     public static String vodName;
     public static String artist;
+    private static final Response.IStatus HTTP_BAD_GATEWAY = new SimpleStatus(502, "Bad Gateway");
+    private static final Response.IStatus HTTP_GATEWAY_TIMEOUT = new SimpleStatus(504, "Gateway Timeout");
 
     public RemoteServer(int port, Context context) {
         super(port);
@@ -189,8 +199,16 @@ public class RemoteServer extends NanoHTTPD {
                         rs = new byte[0];
                     }
                     return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.OK, "application/dns-message", new ByteArrayInputStream(rs), rs.length);
-                } else if (fileName.equals("/m3u8")) {
-                    return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.OK, NanoHTTPD.MIME_PLAINTEXT, m3u8Content);
+                } else if (fileName.equals("/m3u8-proxy")) {
+                    return proxyM3u8Segment(session);
+                } else if (fileName.equals("/m3u8") || fileName.equals("/m3u8.m3u8") || fileName.startsWith("/m3u8/")) {
+                    String content = getM3u8Content(fileName);
+                    if (content == null) {
+                        return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.NOT_FOUND, NanoHTTPD.MIME_PLAINTEXT, "m3u8 session not found");
+                    }
+                    Response response = NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.OK, "application/vnd.apple.mpegurl", content);
+                    response.addHeader("Cache-Control", "no-store");
+                    return response;
                 } else if (fileName.startsWith("/dash/")) {
                     String dashData = App.getInstance().getDashData();
                     try {
@@ -297,6 +315,190 @@ public class RemoteServer extends NanoHTTPD {
 
     public boolean isStarting() {
         return isStarted;
+    }
+
+    public static void putM3u8Session(String sessionId, String content) {
+        if (sessionId == null || sessionId.length() == 0 || content == null) return;
+        m3u8Sessions.put(sessionId, content);
+    }
+
+    public static void removeM3u8Session(String sessionId) {
+        if (sessionId == null || sessionId.length() == 0) return;
+        m3u8Sessions.remove(sessionId);
+    }
+
+    private String getM3u8Content(String fileName) {
+        if (!fileName.startsWith("/m3u8/")) return m3u8Content;
+        String sessionId = fileName.substring("/m3u8/".length());
+        if (sessionId.endsWith(".m3u8")) sessionId = sessionId.substring(0, sessionId.length() - ".m3u8".length());
+        return m3u8Sessions.get(sessionId);
+    }
+
+    private Response proxyM3u8Segment(IHTTPSession session) {
+        okhttp3.Response upstream = null;
+        long started = SystemClock.elapsedRealtime();
+        try {
+            String url = session.getParms().get("url");
+            if (url == null || url.length() == 0) {
+                return NanoHTTPD.newFixedLengthResponse(Response.Status.BAD_REQUEST, NanoHTTPD.MIME_PLAINTEXT, "missing url");
+            }
+            url = URLDecoder.decode(url, "UTF-8");
+
+            Request.Builder builder = new Request.Builder().url(url).get();
+            String range = session.getHeaders().get("range");
+            if (range != null && range.length() > 0) builder.header("Range", range);
+            String userAgent = session.getHeaders().get("user-agent");
+            if (userAgent != null && userAgent.length() > 0) builder.header("User-Agent", userAgent);
+
+            upstream = OkGoHelper.getDefaultClient().newCall(builder.build()).execute();
+            ResponseBody body = upstream.body();
+            Response.IStatus status = statusForCode(upstream.code());
+            if (!upstream.isSuccessful()) {
+                String message = upstream.message() == null ? "upstream error" : upstream.message();
+                closeQuietly(upstream);
+                return NanoHTTPD.newFixedLengthResponse(status, NanoHTTPD.MIME_PLAINTEXT, message);
+            }
+            if (body == null) {
+                closeQuietly(upstream);
+                return NanoHTTPD.newFixedLengthResponse(HTTP_BAD_GATEWAY, NanoHTTPD.MIME_PLAINTEXT, "empty body");
+            }
+
+            String mime = body.contentType() == null ? mimeForUrl(url) : body.contentType().toString();
+            long contentLength = body.contentLength();
+            UpstreamInputStream upstreamStream = new UpstreamInputStream(body.byteStream(), upstream);
+            Response response = contentLength >= 0
+                    ? NanoHTTPD.newFixedLengthResponse(status, mime, upstreamStream, contentLength)
+                    : NanoHTTPD.newChunkedResponse(status, mime, upstreamStream);
+            addUpstreamHeader(response, upstream, "Content-Range");
+            addUpstreamHeader(response, upstream, "Accept-Ranges");
+            addUpstreamHeader(response, upstream, "ETag");
+            addUpstreamHeader(response, upstream, "Last-Modified");
+            addUpstreamHeader(response, upstream, "Expires");
+            response.addHeader("X-Proxy-Elapsed", String.valueOf(SystemClock.elapsedRealtime() - started));
+            response.addHeader("Cache-Control", "no-store");
+            return response;
+        } catch (Throwable th) {
+            closeQuietly(upstream);
+            if (isTimeout(th)) {
+                return NanoHTTPD.newFixedLengthResponse(HTTP_GATEWAY_TIMEOUT, NanoHTTPD.MIME_PLAINTEXT, "upstream timeout");
+            }
+            if (isClientAbort(th)) {
+                return NanoHTTPD.newFixedLengthResponse(Response.Status.INTERNAL_ERROR, NanoHTTPD.MIME_PLAINTEXT, "client aborted");
+            }
+            return NanoHTTPD.newFixedLengthResponse(HTTP_BAD_GATEWAY, NanoHTTPD.MIME_PLAINTEXT, th.getMessage() == null ? "proxy error" : th.getMessage());
+        }
+    }
+
+    private Response.IStatus statusForCode(int code) {
+        Response.IStatus status = Response.Status.lookup(code);
+        return status == null ? HTTP_BAD_GATEWAY : status;
+    }
+
+    private static boolean isTimeout(Throwable th) {
+        while (th != null) {
+            if (th instanceof SocketTimeoutException) return true;
+            th = th.getCause();
+        }
+        return false;
+    }
+
+    private static boolean isClientAbort(Throwable th) {
+        while (th != null) {
+            String message = th.getMessage();
+            if (message != null) {
+                String lower = message.toLowerCase();
+                if (lower.contains("broken pipe") || lower.contains("connection reset") || lower.contains("socket closed")) return true;
+            }
+            th = th.getCause();
+        }
+        return false;
+    }
+
+    private void addUpstreamHeader(Response response, okhttp3.Response upstream, String name) {
+        String value = upstream.header(name);
+        if (value != null && value.length() > 0) response.addHeader(name, value);
+    }
+
+    private String mimeForUrl(String url) {
+        String lower = url.toLowerCase();
+        if (lower.contains(".ts")) return "video/mp2t";
+        if (lower.contains(".m4s") || lower.contains(".mp4")) return "video/mp4";
+        if (lower.contains(".aac")) return "audio/aac";
+        if (lower.contains(".vtt")) return "text/vtt";
+        return "application/octet-stream";
+    }
+
+    private static void closeQuietly(okhttp3.Response response) {
+        if (response == null) return;
+        response.close();
+    }
+
+    private static class SimpleStatus implements Response.IStatus {
+        private final int code;
+        private final String text;
+
+        SimpleStatus(int code, String text) {
+            this.code = code;
+            this.text = text;
+        }
+
+        @Override
+        public int getRequestStatus() {
+            return code;
+        }
+
+        @Override
+        public String getDescription() {
+            return code + " " + text;
+        }
+    }
+
+    private static class UpstreamInputStream extends FilterInputStream {
+        private final okhttp3.Response response;
+
+        UpstreamInputStream(InputStream inputStream, okhttp3.Response response) {
+            super(inputStream);
+            this.response = response;
+        }
+
+        @Override
+        public int read() throws IOException {
+            try {
+                return super.read();
+            } catch (IOException e) {
+                if (isClientAbort(e)) return -1;
+                throw e;
+            }
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            try {
+                return super.read(b, off, len);
+            } catch (IOException e) {
+                if (isClientAbort(e)) return -1;
+                throw e;
+            }
+        }
+
+        @Override
+        public long skip(long n) throws IOException {
+            try {
+                return super.skip(n);
+            } catch (IOException e) {
+                if (isClientAbort(e)) return 0;
+                throw e;
+            }
+        }
+
+        @Override
+        public void close() throws IOException {
+            try {
+                super.close();
+            } finally {
+                response.close();
+            }
+        }
     }
 
     public String getServerAddress() {

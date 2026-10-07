@@ -27,7 +27,10 @@ import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 
 import okhttp3.Cache;
+import okhttp3.ConnectionPool;
 import okhttp3.ConnectionSpec;
+import okhttp3.Dispatcher;
+import okhttp3.Dns;
 import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.dnsoverhttps.DnsOverHttps;
@@ -37,6 +40,12 @@ import xyz.doikki.videoplayer.exo.ExoMediaSourceHelper;
 
 public class OkGoHelper {
     public static final long DEFAULT_MILLISECONDS = 10000;      //默认的超时时间
+    private static final int MAX_REQUESTS = 24;
+    private static final int MAX_REQUESTS_PER_HOST = 6;
+    private static final int MAX_IDLE_CONNECTIONS = 8;
+
+    private static final Dispatcher sharedDispatcher = createDispatcher();
+    private static final ConnectionPool sharedConnectionPool = new ConnectionPool(MAX_IDLE_CONNECTIONS, 5, TimeUnit.MINUTES);
 
     //https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/200
     public static HashMap<Integer, String > httpPhaseMap  = new HashMap<Integer, String>(){{
@@ -55,7 +64,7 @@ public class OkGoHelper {
     }};
 
     static void initExoOkHttpClient() {
-        OkHttpClient.Builder builder = new OkHttpClient.Builder();
+        OkHttpClient.Builder builder = newSharedBuilder();
         HttpLoggingInterceptor loggingInterceptor = new HttpLoggingInterceptor("OkExoPlayer");
 
         if (Hawk.get(HawkConfig.DEBUG_OPEN, false)) {
@@ -66,18 +75,8 @@ public class OkGoHelper {
             loggingInterceptor.setColorLevel(Level.OFF);
         }
         builder.addInterceptor(loggingInterceptor);
-        builder.connectionSpecs(getConnectionSpec());
-        builder.retryOnConnectionFailure(true);
         builder.followRedirects(true);
         builder.followSslRedirects(true);
-
-
-        try {
-            setOkHttpSsl(builder);
-        } catch (Throwable th) {
-            th.printStackTrace();
-        }
-        builder.dns(dnsOverHttps);
 
         ExoMediaSourceHelper.getInstance(App.getInstance()).setOkClient(builder.build());
     }
@@ -124,7 +123,9 @@ public class OkGoHelper {
         dnsHttpsList.add("Google");
         dnsHttpsList.add("AdGuard");
         dnsHttpsList.add("Quad9");
-        OkHttpClient.Builder builder = new OkHttpClient.Builder();
+        OkHttpClient.Builder builder = new OkHttpClient.Builder()
+                .dispatcher(sharedDispatcher)
+                .connectionPool(sharedConnectionPool);
         HttpLoggingInterceptor loggingInterceptor = new HttpLoggingInterceptor("OkExoPlayer");
         if (Hawk.get(HawkConfig.DEBUG_OPEN, false)) {
             loggingInterceptor.setPrintLevel(HttpLoggingInterceptor.Level.BODY);
@@ -160,7 +161,7 @@ public class OkGoHelper {
     public static void init() {
         initDnsOverHttps();
 
-        OkHttpClient.Builder builder = new OkHttpClient.Builder();
+        OkHttpClient.Builder builder = newSharedBuilder();
         HttpLoggingInterceptor loggingInterceptor = new HttpLoggingInterceptor("OkGo");
 
         if (Hawk.get(HawkConfig.DEBUG_OPEN, false)) {
@@ -172,17 +173,10 @@ public class OkGoHelper {
         }
 
         //builder.retryOnConnectionFailure(false);
-        builder.connectionSpecs(getConnectionSpec());
-        builder = builder.addInterceptor(loggingInterceptor)
+        builder.addInterceptor(loggingInterceptor)
                 .readTimeout(DEFAULT_MILLISECONDS, TimeUnit.MILLISECONDS)
                 .writeTimeout(DEFAULT_MILLISECONDS, TimeUnit.MILLISECONDS)
-                .connectTimeout(DEFAULT_MILLISECONDS, TimeUnit.MILLISECONDS)
-                .dns(dnsOverHttps);
-        try {
-            setOkHttpSsl(builder);
-        } catch (Throwable th) {
-            th.printStackTrace();
-        }
+                .connectTimeout(DEFAULT_MILLISECONDS, TimeUnit.MILLISECONDS);
 
         HttpHeaders.setUserAgent(Version.userAgent());
         OkHttpClient okHttpClient = builder.build();
@@ -193,7 +187,42 @@ public class OkGoHelper {
         builder.followSslRedirects(false);
         noRedirectClient = builder.build();
 
-        initExoOkHttpClient();        
+        ExoMediaSourceHelper.getInstance(App.getInstance()).setOkClient(defaultClient);
+    }
+
+    public static OkHttpClient.Builder newSharedBuilder() {
+        OkHttpClient.Builder builder = new OkHttpClient.Builder()
+                .dispatcher(sharedDispatcher)
+                .connectionPool(sharedConnectionPool)
+                .connectionSpecs(getConnectionSpec())
+                .dns(getDns())
+                .retryOnConnectionFailure(true);
+        try {
+            setOkHttpSsl(builder);
+        } catch (Throwable th) {
+            th.printStackTrace();
+        }
+        return builder;
+    }
+
+    private static Dispatcher createDispatcher() {
+        Dispatcher dispatcher = new Dispatcher();
+        dispatcher.setMaxRequests(MAX_REQUESTS);
+        dispatcher.setMaxRequestsPerHost(MAX_REQUESTS_PER_HOST);
+        return dispatcher;
+    }
+
+    public static Dns getDns() {
+        int doh = Hawk.get(HawkConfig.DOH_URL, 0);
+        return doh == 0 || dnsOverHttps == null ? Dns.SYSTEM : dnsOverHttps;
+    }
+
+    public static void clearDnsCache() {
+    }
+
+    public static void tuneForPlayback(boolean active) {
+        sharedDispatcher.setMaxRequests(active ? 16 : MAX_REQUESTS);
+        sharedDispatcher.setMaxRequestsPerHost(active ? 4 : MAX_REQUESTS_PER_HOST);
     }
 
     private static synchronized void setOkHttpSsl(OkHttpClient.Builder builder) {

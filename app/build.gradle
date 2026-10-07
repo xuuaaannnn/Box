@@ -29,13 +29,21 @@ android {
     }
 
     buildTypes {
+        debug {
+            buildConfigField "boolean", "LOG_ENABLED", "true"
+            buildConfigField "boolean", "PLAYBACK_TRACE_ENABLED", "true"
+        }
+
         release {
             minifyEnabled true
+            shrinkResources true
+            buildConfigField "boolean", "LOG_ENABLED", "false"
+            buildConfigField "boolean", "PLAYBACK_TRACE_ENABLED", "false"
 
         }
     }
 
-    flavorDimensions += ["abi", "brand", "mode"]
+    flavorDimensions += ["abi", "brand", "mode", "feature"]
     productFlavors {
         armeabi {
             dimension = "abi"
@@ -70,6 +78,24 @@ android {
             minSdkVersion 21
             // Python 版本需要额外的 Proguard 规则
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro', 'proguard-python.pro'
+        }
+
+        full {
+            dimension = "feature"
+            buildConfigField "boolean", "FEATURE_ALI_PLAYER", "true"
+            buildConfigField "boolean", "FEATURE_THUNDER", "true"
+            buildConfigField "boolean", "FEATURE_EXO_FFMPEG", "true"
+            buildConfigField "boolean", "FEATURE_XWALK", "true"
+            buildConfigField "boolean", "FEATURE_DANMU", "true"
+        }
+
+        lite {
+            dimension = "feature"
+            buildConfigField "boolean", "FEATURE_ALI_PLAYER", "false"
+            buildConfigField "boolean", "FEATURE_THUNDER", "false"
+            buildConfigField "boolean", "FEATURE_EXO_FFMPEG", "false"
+            buildConfigField "boolean", "FEATURE_XWALK", "false"
+            buildConfigField "boolean", "FEATURE_DANMU", "false"
         }
     }
     applicationVariants.configureEach { variant ->
@@ -109,7 +135,11 @@ dependencies {
             because("kotlin-stdlib-jdk8 is now a part of kotlin-stdlib")
         }
     }
-    api fileTree(dir: "libs", include: ['*.jar', '*.aar'])
+    api files('libs/dec-0.1.2.jar')
+    fullImplementation files('libs/xwalk_shared_library-23.53.589.4.aar')
+    fullImplementation files('libs/thunder.jar')
+    liteCompileOnly files('libs/thunder.jar')
+    fullImplementation files('libs/lib-decoder-ffmpeg-release.aar')
     implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
     // for WebDAV
     implementation('com.github.thegrizzlylabs:sardine-android:0.8') {
@@ -152,12 +182,15 @@ dependencies {
     implementation "androidx.media3:media3-exoplayer-rtsp:1.3.1"
     implementation "androidx.media3:media3-datasource-rtmp:1.3.1"
     implementation 'androidx.media3:media3-common:1.3.1'
-    implementation "com.github.anilbeesetti.nextlib:nextlib-media3ext:0.7.1"
+    fullImplementation "com.github.anilbeesetti.nextlib:nextlib-media3ext:0.7.1"
+    liteCompileOnly "com.github.anilbeesetti.nextlib:nextlib-media3ext:0.7.1"
 
 
 
-    implementation "com.aliyun.sdk.android:AliyunPlayer:5.5.2.0-full"
-    implementation 'com.alivc.conan:AlivcConan:0.9.5'
+    fullImplementation "com.aliyun.sdk.android:AliyunPlayer:5.5.2.0-full"
+    fullImplementation 'com.alivc.conan:AlivcConan:0.9.5'
+    liteCompileOnly "com.aliyun.sdk.android:AliyunPlayer:5.5.2.0-full"
+    liteCompileOnly 'com.alivc.conan:AlivcConan:0.9.5'
     implementation 'xyz.doikki.android.dkplayer:dkplayer-ui:3.3.7'
     implementation 'xyz.doikki.android.dkplayer:videocache:3.3.7'
 
@@ -177,7 +210,7 @@ dependencies {
     implementation 'io.github.inflationx:calligraphy3:3.1.1'
     implementation 'com.yanzhenjie.andserver:api:2.1.12'
     kapt 'com.yanzhenjie.andserver:processor:2.1.12'
-    implementation 'com.github.ctiao:DanmakuFlameMaster:0.9.25'
+    fullImplementation 'com.github.ctiao:DanmakuFlameMaster:0.9.25'
     implementation('org.simpleframework:simple-xml:2.7.1') {
         exclude group: 'stax', module: 'stax-api'
         exclude group: 'xpp3', module: 'xpp3'

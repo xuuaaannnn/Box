@@ -1,6 +1,8 @@
 package com.github.tvbox.osc.util.parser;
 import android.util.Base64;
 import com.github.catvod.crawler.SpiderDebug;
+import com.github.tvbox.osc.util.AppExecutors;
+import com.github.tvbox.osc.util.OkGoHelper;
 import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -11,8 +13,8 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import okhttp3.Call;
 import okhttp3.Headers;
@@ -31,9 +33,13 @@ public class JsonParallel {
     public static JSONObject parse(LinkedHashMap<String, String> jx, String url) {
         try {
             if (jx != null && jx.size() > 0) {
-                client = new OkHttpClient();
-                // 使用线程池并发处理任务
-                executorService = Executors.newFixedThreadPool(5);
+                client = OkGoHelper.newSharedBuilder()
+                        .connectTimeout(12, TimeUnit.SECONDS)
+                        .readTimeout(12, TimeUnit.SECONDS)
+                        .writeTimeout(12, TimeUnit.SECONDS)
+                        .build();
+                // 解析请求会和播放抢资源，上限固定为 2。
+                executorService = AppExecutors.newParsePool("json-parallel");
                 CompletionService<JSONObject> completionService = new ExecutorCompletionService<>(executorService);
                 futures.clear();
 
@@ -57,7 +63,12 @@ public class JsonParallel {
 
                                 Call call = client.newCall(request);
                                 Response response = call.execute();
+                                if (response.body() == null) {
+                                    response.close();
+                                    return null;
+                                }
                                 String json = response.body().string();
+                                response.close();
 
                                 JSONObject taskResult = Utils.jsonParse(url, json);
                                 taskResult.put("jxFrom", jxName);

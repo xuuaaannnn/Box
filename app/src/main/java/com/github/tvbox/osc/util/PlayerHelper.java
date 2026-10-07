@@ -42,6 +42,8 @@ public class PlayerHelper {
             e.printStackTrace();
         }
         if (forcePlayerType >= 0) playerType = forcePlayerType;
+        if (playerType == 3 && !FeatureFlags.isAliPlayerEnabled()) playerType = 1;
+
         IJKCode codec = ApiConfig.get().getIJKCodec(ijkCode);
         PlayerFactory playerFactory;
         if (playerType == 1) {
@@ -67,6 +69,7 @@ public class PlayerHelper {
         if (playerType==2){
             renderViewFactory = PlayerViewRenderViewFactory.create(renderType);
         }else{
+            if (playerType == 1 && "硬解码".equals(ijkCode)) renderType = 1;
             switch (renderType) {
                 case 0:
                 default:
@@ -85,6 +88,8 @@ public class PlayerHelper {
 
     public static void updateCfg(VideoView videoView) {
         int playType = Hawk.get(HawkConfig.PLAY_TYPE, 0);
+        if (playType == 3 && !FeatureFlags.isAliPlayerEnabled()) playType = 1;
+
         PlayerFactory playerFactory;
         if (playType == 1) {
             playerFactory = new PlayerFactory<IjkmPlayer>() {
@@ -107,6 +112,7 @@ public class PlayerHelper {
             playerFactory = AndroidMediaPlayerFactory.create();
         }
         int renderType = Hawk.get(HawkConfig.PLAY_RENDER, 0);
+        if (playType == 1 && "硬解码".equals(Hawk.get(HawkConfig.IJK_CODEC, "软解码"))) renderType = 1;
         RenderViewFactory renderViewFactory = null;
         switch (renderType) {
             case 0:
@@ -130,7 +136,7 @@ public class PlayerHelper {
             return "IJK";
         } else if (playType == 2) {
             return "Exo";
-        } else if (playType == 3) {
+        } else if (playType == 3 && FeatureFlags.isAliPlayerEnabled()) {
             return "阿里";
         } else if (playType == 10) {
             return "MX";

@@ -19,7 +19,9 @@ import com.github.tvbox.osc.bean.Movie;
 import com.github.tvbox.osc.bean.MovieSort;
 import com.github.tvbox.osc.bean.SourceBean;
 import com.github.tvbox.osc.event.RefreshEvent;
+import com.github.tvbox.osc.util.AppExecutors;
 import com.github.tvbox.osc.util.DefaultConfig;
+import com.github.tvbox.osc.util.FeatureFlags;
 import com.github.tvbox.osc.util.HawkConfig;
 import com.github.tvbox.osc.util.LOG;
 import com.github.tvbox.osc.util.MD5;
@@ -55,7 +57,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -81,7 +82,7 @@ public class SourceViewModel extends ViewModel {
             searchExecutorService = null;
             JsLoader.stopAll();
         }
-        searchExecutorService = Executors.newFixedThreadPool(5);
+        searchExecutorService = AppExecutors.newSearchPool("source");
     }
 
     public void execute(Runnable runnable) {
@@ -91,11 +92,15 @@ public class SourceViewModel extends ViewModel {
     }
 
     public List<Runnable> shutdownNow() {
-        return searchExecutorService == null ? new ArrayList<>() : searchExecutorService.shutdownNow();
+        if (searchExecutorService == null) return new ArrayList<>();
+        List<Runnable> tasks = searchExecutorService.shutdownNow();
+        searchExecutorService = null;
+        return tasks;
     }
 
     public void destroyExecutor() {
         if (searchExecutorService != null) {
+            searchExecutorService.shutdownNow();
             searchExecutorService = null;
         }
     }
@@ -110,7 +115,7 @@ public class SourceViewModel extends ViewModel {
         gson=new Gson();
     }
 
-    public static final ExecutorService spThreadPool = Executors.newSingleThreadExecutor();
+    public static final ExecutorService spThreadPool = AppExecutors.newSingle("source-spider");
 
     //homeContent缓存，最多存储5个sourceKey的AbsSortXml对象
     private static final Map<String, AbsSortXml> sortCache = new LinkedHashMap<String, AbsSortXml>(5, 0.75f, true) {
@@ -145,7 +150,7 @@ public class SourceViewModel extends ViewModel {
             Runnable waitResponse = new Runnable() {
                 @Override
                 public void run() {
-                    ExecutorService executor = Executors.newSingleThreadExecutor();
+                    ExecutorService executor = AppExecutors.newSingle("source-home-content");
                     Future<String> future = executor.submit(new Callable<String>() {
                         @Override
                         public String call() throws Exception {
@@ -413,7 +418,7 @@ public class SourceViewModel extends ViewModel {
             Runnable waitResponse = new Runnable() {
                 @Override
                 public void run() {
-                    ExecutorService executor = Executors.newSingleThreadExecutor();
+                    ExecutorService executor = AppExecutors.newSingle("source-home-video");
                     Future<String> future = executor.submit(new Callable<String>() {
                         @Override
                         public String call() throws Exception {
@@ -523,7 +528,7 @@ public class SourceViewModel extends ViewModel {
             spThreadPool.execute(new Runnable() {
                 @Override
                 public void run() {
-                    ExecutorService executor = Executors.newSingleThreadExecutor();
+                    ExecutorService executor = AppExecutors.newSingle("source-detail");
                     Future<String> future = executor.submit(new Callable<String>() {
                         @Override
                         public String call() {
@@ -766,7 +771,12 @@ public class SourceViewModel extends ViewModel {
 
     public void getPlay(String sourceKey, String playFlag, String progressKey, String url, String subtitleKey) {
         if (threadPoolGetPlay != null) threadPoolGetPlay.shutdownNow();
-        threadPoolGetPlay = Executors.newFixedThreadPool(2);
+        OkGo.getInstance().cancelTag("play");
+        OkGo.getInstance().cancelTag("play_share");
+        OkGo.getInstance().cancelTag("json_jx");
+        OkGo.getInstance().cancelTag("m3u8-1");
+        OkGo.getInstance().cancelTag("m3u8-2");
+        threadPoolGetPlay = AppExecutors.newParsePool("play");
         Callable<JSONObject> callable = () -> {
             if (Thread.currentThread().isInterrupted()) return null;
             SourceBean sourceBean = ApiConfig.get().getSource(sourceKey);
@@ -1046,7 +1056,7 @@ public class SourceViewModel extends ViewModel {
                                 final AbsXml[] resData = {null};
 
                                 final CountDownLatch countDownLatch = new CountDownLatch(1);
-                                ExecutorService threadPool = Executors.newSingleThreadExecutor();
+                                ExecutorService threadPool = AppExecutors.newSingle("source-push-agent");
                                 String finalPushUrl = pushUrl;
                                 threadPool.execute(new Runnable() {
                                     @Override
@@ -1119,9 +1129,10 @@ public class SourceViewModel extends ViewModel {
                                 });
                                 try {
                                     countDownLatch.await(15, TimeUnit.SECONDS);
-                                    threadPool.shutdown();
                                 } catch (InterruptedException e) {
-                                    e.printStackTrace();
+                                    Thread.currentThread().interrupt();
+                                } finally {
+                                    threadPool.shutdownNow();
                                 }
                                 if (resData[0] != null) {
                                     AbsXml res = resData[0];
@@ -1154,6 +1165,11 @@ public class SourceViewModel extends ViewModel {
     }
 
     public void checkThunder(AbsXml data, int index) {
+        if (!FeatureFlags.isThunderEnabled()) {
+            if (index == 0) detailResult.postValue(data);
+            return;
+        }
+
         boolean thunderParse = false;
         if (data.movie != null && data.movie.videoList != null && data.movie.videoList.size() == 1) {
             Movie.Video video = data.movie.videoList.get(0);
